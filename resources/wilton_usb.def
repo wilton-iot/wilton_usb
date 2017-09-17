@@ -1,0 +1,10 @@
+
+EXPORTS
+    wilton_USB_open
+    wilton_USB_close
+    wilton_USB_read
+    wilton_USB_write
+    wilton_USB_control
+    
+    wilton_module_init
+    
