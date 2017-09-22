@@ -36,7 +36,7 @@ support::handle_registry<wilton_USB>& static_registry() {
 
 } // namespace
 
-support::buffer usb_open(sl::io::span<const char> data) {
+support::buffer open(sl::io::span<const char> data) {
     wilton_USB* usb;
     char* err = wilton_USB_open(std::addressof(usb), data.data(), static_cast<int>(data.size()));
     if (nullptr != err) support::throw_wilton_error(err, TRACEMSG(err));
@@ -46,7 +46,7 @@ support::buffer usb_open(sl::io::span<const char> data) {
     });
 }
 
-support::buffer usb_close(sl::io::span<const char> data) {
+support::buffer close(sl::io::span<const char> data) {
     // json parse
     auto json = sl::json::load(data);
     int64_t handle = -1;
@@ -73,7 +73,7 @@ support::buffer usb_close(sl::io::span<const char> data) {
     return support::make_empty_buffer();
 }
 
-support::buffer usb_read(sl::io::span<const char> data) {
+support::buffer read(sl::io::span<const char> data) {
     // json parse
     auto json = sl::json::load(data);
     int64_t handle = -1;
@@ -107,7 +107,7 @@ support::buffer usb_read(sl::io::span<const char> data) {
 }
 
 
-support::buffer usb_write(sl::io::span<const char> data) {
+support::buffer write(sl::io::span<const char> data) {
     // json parse
     auto json = sl::json::load(data);
     int64_t handle = -1;
@@ -142,7 +142,7 @@ support::buffer usb_write(sl::io::span<const char> data) {
     });
 }
 
-support::buffer usb_control(sl::io::span<const char> data) {
+support::buffer control(sl::io::span<const char> data) {
     // json parse
     auto json = sl::json::load(data);
     int64_t handle = -1;
@@ -180,11 +180,11 @@ support::buffer usb_control(sl::io::span<const char> data) {
 
 extern "C" char* wilton_module_init() {
     try {
-        wilton::support::register_wiltoncall("usb_open", wilton::usb::usb_open);
-        wilton::support::register_wiltoncall("usb_close", wilton::usb::usb_close);
-        wilton::support::register_wiltoncall("usb_read", wilton::usb::usb_read);
-        wilton::support::register_wiltoncall("usb_write", wilton::usb::usb_write);
-        wilton::support::register_wiltoncall("usb_control", wilton::usb::usb_control);
+        wilton::support::register_wiltoncall("usb_open", wilton::usb::open);
+        wilton::support::register_wiltoncall("usb_close", wilton::usb::close);
+        wilton::support::register_wiltoncall("usb_read", wilton::usb::read);
+        wilton::support::register_wiltoncall("usb_write", wilton::usb::write);
+        wilton::support::register_wiltoncall("usb_control", wilton::usb::control);
         return nullptr;
     } catch (const std::exception& e) {
         return wilton::support::alloc_copy(TRACEMSG(e.what() + "\nException raised"));
