@@ -37,7 +37,7 @@ support::handle_registry<wilton_USB>& static_registry() {
 } // namespace
 
 support::buffer open(sl::io::span<const char> data) {
-    wilton_USB* usb;
+    wilton_USB* usb = nullptr;
     char* err = wilton_USB_open(std::addressof(usb), data.data(), static_cast<int>(data.size()));
     if (nullptr != err) support::throw_wilton_error(err, TRACEMSG(err));
     int64_t handle = static_registry().put(usb);
