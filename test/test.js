@@ -3,7 +3,7 @@
 
 define([
     "wilton/hex",
-    "wilton/usb/USB"
+    "wilton/USB"
 ], function(hex, USB) {
 
     function readAll(usb) {
