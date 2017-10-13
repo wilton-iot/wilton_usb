@@ -12,7 +12,7 @@ set ( ${PROJECT_NAME}_DEPS
         staticlib_utils
         staticlib_pimpl
         staticlib_json )
-if ( STATICLIB_TOOLCHAIN MATCHES "windows_[^_]+_[^_]+" )
+if ( STATICLIB_TOOLCHAIN MATCHES "linux_[^_]+_[^_]+" )
     list ( APPEND ${PROJECT_NAME}_DEPS libusb-1.0 )
 endif ( )
 staticlib_pkg_check_modules ( ${PROJECT_NAME}_DEPS_PC REQUIRED ${PROJECT_NAME}_DEPS )
