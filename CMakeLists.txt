@@ -12,7 +12,7 @@ set ( ${PROJECT_NAME}_DEPS
         staticlib_utils
         staticlib_pimpl
         staticlib_json )
-if ( STATICLIB_TOOLCHAIN MATCHES "linux_[^_]+_[^_]+" )
+if ( STATICLIB_TOOLCHAIN MATCHES "linux_.+" )
     list ( APPEND ${PROJECT_NAME}_DEPS libusb-1.0 )
 endif ( )
 staticlib_pkg_check_modules ( ${PROJECT_NAME}_DEPS_PC REQUIRED ${PROJECT_NAME}_DEPS )
@@ -21,7 +21,7 @@ staticlib_pkg_check_modules ( ${PROJECT_NAME}_DEPS_PC REQUIRED ${PROJECT_NAME}_D
 set ( ${PROJECT_NAME}_PLATFORM_SRC ) 
 set ( ${PROJECT_NAME}_RESFILE )
 set ( ${PROJECT_NAME}_DEFFILE )
-if ( ${CMAKE_SYSTEM_NAME} STREQUAL "Windows" )
+if ( STATICLIB_TOOLCHAIN MATCHES "windows_.+" )
     list ( APPEND ${PROJECT_NAME}_PLATFORM_SRC ${CMAKE_CURRENT_LIST_DIR}/src/connection_windows.cpp )
     configure_file ( ${WILTON_DIR}/resources/buildres/wilton_module.rc
             ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.rc )
@@ -51,7 +51,7 @@ target_include_directories ( ${PROJECT_NAME} BEFORE PRIVATE
         
 target_compile_options ( ${PROJECT_NAME} PRIVATE ${${PROJECT_NAME}_DEPS_PC_CFLAGS_OTHER} )
 
-if ( ${CMAKE_SYSTEM_NAME} STREQUAL "Windows" )
+if ( STATICLIB_TOOLCHAIN MATCHES "windows_.+" )
     set_property ( TARGET ${PROJECT_NAME} APPEND_STRING PROPERTY LINK_FLAGS "/manifest:no" )
 endif ( )
 
