@@ -4,6 +4,7 @@
  *
  * Created on September 16, 2017, 8:13 PM
  */
+#include <memory>
 #include <string>
 
 #include "staticlib/config.hpp"
@@ -26,11 +27,11 @@ namespace usb {
 
 namespace { //anonymous
 
-support::handle_registry<wilton_USB>& static_registry() {
-    static support::handle_registry<wilton_USB> registry {
+std::shared_ptr<support::handle_registry<wilton_USB>> shared_registry() {
+    static auto registry = std::make_shared<support::handle_registry<wilton_USB>>(
         [] (wilton_USB* conn) STATICLIB_NOEXCEPT {
             wilton_USB_close(conn);
-        }};
+        });
     return registry;
 }
 
@@ -40,7 +41,8 @@ support::buffer open(sl::io::span<const char> data) {
     wilton_USB* usb = nullptr;
     char* err = wilton_USB_open(std::addressof(usb), data.data(), static_cast<int>(data.size()));
     if (nullptr != err) support::throw_wilton_error(err, TRACEMSG(err));
-    int64_t handle = static_registry().put(usb);
+    auto reg = shared_registry();
+    int64_t handle = reg->put(usb);
     return support::make_json_buffer({
         { "usbHandle", handle}
     });
@@ -61,13 +63,14 @@ support::buffer close(sl::io::span<const char> data) {
     if (-1 == handle) throw support::exception(TRACEMSG(
             "Required parameter 'usbHandle' not specified"));
     // get handle
-    wilton_USB* ser = static_registry().remove(handle);
+    auto reg = shared_registry();
+    wilton_USB* ser = reg->remove(handle);
     if (nullptr == ser) throw support::exception(TRACEMSG(
             "Invalid 'usbHandle' parameter specified"));
     // call wilton
     char* err = wilton_USB_close(ser);
     if (nullptr != err) {
-        static_registry().put(ser);
+        reg->put(ser);
         support::throw_wilton_error(err, TRACEMSG(err));
     }
     return support::make_empty_buffer();
@@ -93,7 +96,8 @@ support::buffer read(sl::io::span<const char> data) {
     if (-1 == len) throw support::exception(TRACEMSG(
             "Required parameter 'length' not specified"));
     // get handle
-    wilton_USB* ser = static_registry().remove(handle);
+    auto reg = shared_registry();
+    wilton_USB* ser = reg->remove(handle);
     if (nullptr == ser) throw support::exception(TRACEMSG(
             "Invalid 'usbHandle' parameter specified"));
     // call wilton
@@ -101,7 +105,7 @@ support::buffer read(sl::io::span<const char> data) {
     int out_len = 0;
     char* err = wilton_USB_read(ser, static_cast<int>(len),
             std::addressof(out), std::addressof(out_len));
-    static_registry().put(ser);
+    reg->put(ser);
     if (nullptr != err) support::throw_wilton_error(err, TRACEMSG(err));
     return support::wrap_wilton_buffer(out, out_len);
 }
@@ -128,14 +132,15 @@ support::buffer write(sl::io::span<const char> data) {
             "Required parameter 'dataHex' not specified"));
     std::string sdata = sl::crypto::from_hex(rdatahex.get());
     // get handle
-    wilton_USB* ser = static_registry().remove(handle);
+    auto reg = shared_registry();
+    wilton_USB* ser = reg->remove(handle);
     if (nullptr == ser) throw support::exception(TRACEMSG(
             "Invalid 'usbHandle' parameter specified"));
     // call wilton
     int written_out = 0;
     char* err = wilton_USB_write(ser, sdata.c_str(), 
             static_cast<int> (sdata.length()), std::addressof(written_out));
-    static_registry().put(ser);
+    reg->put(ser);
     if (nullptr != err) support::throw_wilton_error(err, TRACEMSG(err));
     return support::make_json_buffer({
         { "bytesWritten", written_out }
@@ -162,7 +167,8 @@ support::buffer control(sl::io::span<const char> data) {
     if (options.empty()) throw support::exception(TRACEMSG(
             "Required parameter 'options' not specified"));
     // get handle
-    wilton_USB* usb = static_registry().remove(handle);
+    auto reg = shared_registry();
+    wilton_USB* usb = reg->remove(handle);
     if (nullptr == usb) throw support::exception(TRACEMSG(
             "Invalid 'usbHandle' parameter specified"));
     // call wilton
@@ -170,7 +176,7 @@ support::buffer control(sl::io::span<const char> data) {
     int out_len = 0;
     char* err = wilton_USB_control(usb, options.c_str(), static_cast<int> (options.length()),
             std::addressof(out), std::addressof(out_len));
-    static_registry().put(usb);
+    reg->put(usb);
     if (nullptr != err) support::throw_wilton_error(err, TRACEMSG(err));
     return support::wrap_wilton_buffer(out, out_len);
 }

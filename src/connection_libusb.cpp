@@ -31,20 +31,21 @@ namespace usb {
 
 namespace { // anonymous
 
-libusb_context* static_context() {
-    static std::unique_ptr<libusb_context, std::function<void(libusb_context*)>> ctx = [] {
-        libusb_context* ctx = nullptr;
-        auto err = libusb_init(std::addressof(ctx));
-        if (LIBUSB_SUCCESS != err) {
-            throw support::exception(TRACEMSG(
-                    "USB 'libusb_init' error, code: [" + sl::support::to_string(err) + "]"));
-        }
-        return std::unique_ptr<libusb_context, std::function<void(libusb_context*)>> (
-                ctx, [](libusb_context* ctx) {
-                    libusb_exit(ctx);
-                });
-    }();
-    return ctx.get();
+std::shared_ptr<libusb_context> shared_context() {
+    static std::shared_ptr<libusb_context> ctx = 
+            []() -> std::unique_ptr<libusb_context, std::function<void(libusb_context*)>> {
+                libusb_context* ctx = nullptr;
+                auto err = libusb_init(std::addressof(ctx));
+                if (LIBUSB_SUCCESS != err) {
+                    throw support::exception(TRACEMSG(
+                            "USB 'libusb_init' error, code: [" + sl::support::to_string(err) + "]"));
+                }
+                return std::unique_ptr<libusb_context, std::function<void(libusb_context*)>> (
+                        ctx, [](libusb_context* ctx) {
+                            libusb_exit(ctx);
+                        });
+            }();
+    return ctx;
 }
 
 } // namespace
@@ -200,9 +201,9 @@ public:
 
 private:
     static libusb_device_handle* find_and_open_by_vid_pid(uint16_t vid, uint16_t pid) {
-        auto ctx = static_context();
+        auto ctx = shared_context();
 	struct libusb_device **devlist = nullptr;
-        auto err_getlist = libusb_get_device_list(ctx, std::addressof(devlist));
+        auto err_getlist = libusb_get_device_list(ctx.get(), std::addressof(devlist));
         if (err_getlist < 0) {
             throw support::exception(TRACEMSG(
                     "USB 'libusb_get_device_list' error, code: [" + sl::support::to_string(err_getlist) + "]"));
