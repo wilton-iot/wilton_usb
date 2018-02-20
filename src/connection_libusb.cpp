@@ -67,7 +67,7 @@ public:
     }
 
     std::string read(connection&, uint32_t length) {
-        uint64_t start = current_time_millis();
+        uint64_t start = sl::utils::current_time_millis_steady();
         uint64_t finish = start + conf.timeout_millis;
         uint64_t cur = start;
         std::string res;
@@ -95,7 +95,7 @@ public:
             } else { // read timeout
                 res.resize(prev_len);
             }
-            cur = current_time_millis();
+            cur = sl::utils::current_time_millis_steady();
             if (cur >= finish) {
                 break;
             }
@@ -104,7 +104,7 @@ public:
     }
 
     uint32_t write(connection&, sl::io::span<const char> data) {
-        uint64_t start = current_time_millis();
+        uint64_t start = sl::utils::current_time_millis_steady();
         uint64_t finish = start + conf.timeout_millis;
         uint64_t cur = start;
         auto data_mut = std::string();
@@ -131,7 +131,7 @@ public:
             if (written >= data.size()) {
                 break;
             }
-            cur = current_time_millis();
+            cur = sl::utils::current_time_millis_steady();
             if (cur >= finish) {
                 break;
             }
@@ -280,12 +280,6 @@ private:
         return ss.str();
     }
 
-    static uint64_t current_time_millis() {
-        auto now = std::chrono::steady_clock::now().time_since_epoch();
-        auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(now);
-        return millis.count();
-    }
-    
 };
 PIMPL_FORWARD_CONSTRUCTOR(connection, (usb_config&&), (), support::exception)
 PIMPL_FORWARD_METHOD(connection, std::string, read, (uint32_t), (), support::exception)
