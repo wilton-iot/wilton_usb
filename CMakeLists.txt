@@ -6,7 +6,6 @@ project ( wilton_usb CXX )
 
 set ( ${PROJECT_NAME}_DEPS
         staticlib_config
-        staticlib_crypto
         staticlib_support
         staticlib_ranges
         staticlib_utils
@@ -41,12 +40,14 @@ add_library ( ${PROJECT_NAME} SHARED
         
 target_link_libraries ( ${PROJECT_NAME} PRIVATE
         wilton_core
+        ${WILTON_DIR}/modules/wilton_logging/include
         ${${PROJECT_NAME}_DEPS_PC_STATIC_LIBRARIES} )
 
 target_include_directories ( ${PROJECT_NAME} BEFORE PRIVATE 
         ${CMAKE_CURRENT_LIST_DIR}/src
         ${CMAKE_CURRENT_LIST_DIR}/include
         ${WILTON_DIR}/core/include
+        ${WILTON_DIR}/modules/wilton_logging/include
         ${${PROJECT_NAME}_DEPS_PC_INCLUDE_DIRS} )
         
 target_compile_options ( ${PROJECT_NAME} PRIVATE ${${PROJECT_NAME}_DEPS_PC_CFLAGS_OTHER} )

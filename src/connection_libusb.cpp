@@ -1,3 +1,19 @@
+/*
+ * Copyright 2017, alex at staticlibs.net
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 /* 
  * File:   connection_libusb.cpp
  * Author: alex
@@ -17,8 +33,8 @@
 
 #include "libusb-1.0/libusb.h"
 
-#include "staticlib/crypto.hpp"
 #include "staticlib/json.hpp"
+#include "staticlib/io.hpp"
 #include "staticlib/ranges.hpp"
 #include "staticlib/support.hpp"
 #include "staticlib/pimpl/forward_macros.hpp"
@@ -100,7 +116,7 @@ public:
                 break;
             }
         }
-        return sl::crypto::to_hex(res);
+        return res;
     }
 
     uint32_t write(connection&, sl::io::span<const char> data) {
@@ -174,7 +190,7 @@ public:
                 "Invalid parameter 'data', size: [" + sl::support::to_string(rdata.get().size()) + "]"));
         if (rdatahex.get().length() > conf.buffer_size) throw support::exception(TRACEMSG(
                 "Invalid parameter 'dataHex', size: [" + sl::support::to_string(rdatahex.get().size()) + "]"));
-        std::string data = !rdata.get().empty() ? rdata.get() : sl::crypto::from_hex(rdatahex.get());
+        std::string data = !rdata.get().empty() ? rdata.get() : sl::io::string_from_hex(rdatahex.get());
 
         // call device
         auto buf = std::string();
@@ -195,8 +211,7 @@ public:
             throw support::exception(TRACEMSG(
                     "USB 'libusb_control_transfer' error, code: [" + sl::support::to_string(transferred) + "]"));
         }
-        auto res = data.substr(0, transferred);
-        return sl::crypto::to_hex(res);
+        return data.substr(0, transferred);
     }
 
 private:
