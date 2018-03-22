@@ -57,6 +57,8 @@ public:
     uint32_t write(sl::io::span<const char> data);
 
     std::string control(const sl::json::value& control_options);
+
+    static void initialize();
 };
 
 } // namespace

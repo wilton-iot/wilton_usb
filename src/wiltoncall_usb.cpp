@@ -37,11 +37,15 @@
 #include "wilton/support/buffer.hpp"
 #include "wilton/support/registrar.hpp"
 
+// for local statics init only
+#include "connection.hpp"
+
 namespace wilton {
 namespace usb {
 
 namespace { //anonymous
 
+// initialized from wilton_module_init
 std::shared_ptr<support::handle_registry<wilton_USB>> shared_registry() {
     static auto registry = std::make_shared<support::handle_registry<wilton_USB>>(
         [] (wilton_USB* conn) STATICLIB_NOEXCEPT {
@@ -215,6 +219,8 @@ support::buffer control(sl::io::span<const char> data) {
 
 extern "C" char* wilton_module_init() {
     try {
+        wilton::usb::shared_registry();
+        wilton::usb::connection::initialize();
         wilton::support::register_wiltoncall("usb_open", wilton::usb::open);
         wilton::support::register_wiltoncall("usb_close", wilton::usb::close);
         wilton::support::register_wiltoncall("usb_read", wilton::usb::read);

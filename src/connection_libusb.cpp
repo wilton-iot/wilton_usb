@@ -47,6 +47,7 @@ namespace usb {
 
 namespace { // anonymous
 
+// initialized from wilton_module_init
 std::shared_ptr<libusb_context> shared_context() {
     static std::shared_ptr<libusb_context> ctx = 
             []() -> std::unique_ptr<libusb_context, std::function<void(libusb_context*)>> {
@@ -213,6 +214,10 @@ public:
         }
         return data.substr(0, transferred);
     }
+    
+    static void initialize() {
+        shared_context();
+    }
 
 private:
     static libusb_device_handle* find_and_open_by_vid_pid(uint16_t vid, uint16_t pid) {
@@ -300,6 +305,7 @@ PIMPL_FORWARD_CONSTRUCTOR(connection, (usb_config&&), (), support::exception)
 PIMPL_FORWARD_METHOD(connection, std::string, read, (uint32_t), (), support::exception)
 PIMPL_FORWARD_METHOD(connection, uint32_t, write, (sl::io::span<const char>), (), support::exception)
 PIMPL_FORWARD_METHOD(connection, std::string, control, (const sl::json::value&), (), support::exception)
+PIMPL_FORWARD_METHOD_STATIC(connection, void, initialize, (), (), support::exception)
 
 } // namespace
 }
