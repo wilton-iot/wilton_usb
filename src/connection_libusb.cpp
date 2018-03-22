@@ -71,7 +71,7 @@ class connection::impl : public staticlib::pimpl::object::impl {
     usb_config conf;
 
     std::unique_ptr<libusb_device_handle, std::function<void(libusb_device_handle*)>> handle;
-    
+
 public:
     impl(usb_config&& conf) :
     conf(std::move(conf)),
@@ -79,9 +79,7 @@ public:
             [this](libusb_device_handle* ha) {
                 libusb_release_interface(ha, 0);
                 libusb_close(ha);
-            }
-    ) {
-    }
+            }) { }
 
     std::string read(connection&, uint32_t length) {
         uint64_t start = sl::utils::current_time_millis_steady();
@@ -214,7 +212,7 @@ public:
         }
         return data.substr(0, transferred);
     }
-    
+
     static void initialize() {
         shared_context();
     }
@@ -222,7 +220,7 @@ public:
 private:
     static libusb_device_handle* find_and_open_by_vid_pid(uint16_t vid, uint16_t pid) {
         auto ctx = shared_context();
-	struct libusb_device **devlist = nullptr;
+        struct libusb_device **devlist = nullptr;
         auto err_getlist = libusb_get_device_list(ctx.get(), std::addressof(devlist));
         if (err_getlist < 0) {
             throw support::exception(TRACEMSG(
