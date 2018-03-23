@@ -23,12 +23,10 @@
 
 #include "connection.hpp"
 
-#include <array>
-#include <chrono>
 #include <functional>
 #include <memory>
 #include <sstream>
-#include <utility>
+#include <tuple>
 #include <vector>
 
 #ifndef UNICODE
@@ -44,8 +42,20 @@
 #define WIN32_LEAN_AND_MEAN
 #endif // WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#include <api/setupapi.h>
-#include <api/hidsdi.h>
+extern "C" {
+    #include <api/setupapi.h>
+    #include <api/hidsdi.h>
+}
+
+#include "staticlib/json.hpp"
+#include "staticlib/io.hpp"
+#include "staticlib/ranges.hpp"
+#include "staticlib/support.hpp"
+#include "staticlib/pimpl/forward_macros.hpp"
+#include "staticlib/utils.hpp"
+
+#include "wilton/support/exception.hpp"
+#include "wilton/support/handle_registry.hpp"
 
 namespace wilton {
 namespace usb {
@@ -78,8 +88,9 @@ public:
         std::string res;
         uint32_t length = length_ret + 1;
         for (;;) {
-            // (err, bytes_read)
-            auto state = std::pair<DWORD, DWORD>();
+            // (err, bytes_read, flag)
+            bool completion_called_flag = false;
+            std::tuple<DWORD, DWORD, bool*> state = std::make_tuple(0, 0, std::addressof(completion_called_flag));
             OVERLAPPED overlapped;
             std::memset(std::addressof(overlapped), '\0', sizeof (overlapped)); 
             overlapped.hEvent = static_cast<void*>(std::addressof(state));
@@ -87,14 +98,15 @@ public:
             // completion routine
             auto completion = static_cast<LPOVERLAPPED_COMPLETION_ROUTINE> ([](
                     DWORD err, DWORD bytes_read, LPOVERLAPPED overlapped_ptr) {
-                auto state_ptr = static_cast<std::pair<DWORD, DWORD>*>(overlapped_ptr->hEvent);
-                state_ptr->first = err;
-                state_ptr->second = bytes_read;
+                auto state_ptr = static_cast<std::tuple<DWORD, DWORD, bool*>*>(overlapped_ptr->hEvent);
+                std::get<0>(*state_ptr) = err;
+                std::get<1>(*state_ptr) = bytes_read;
+                *std::get<2>(*state_ptr) = true;
             });
 
             // prepare read
             uint32_t passed = static_cast<uint32_t> (cur - start);
-            int rtm = static_cast<int> (timeout_millis - passed);
+            int rtm = static_cast<int> (conf.timeout_millis - passed);
             auto prev_len = res.length();
             res.resize(length);
             auto rlen = length - prev_len;
@@ -106,39 +118,37 @@ public:
                     static_cast<DWORD> (rlen),
                     std::addressof(overlapped),
                     completion); 
-
             if (0 == err_read) throw support::exception(TRACEMSG(
-                    "USB 'ReadFileEx' error, VID: [" + sl::support::to_string(vid) + "]," +
-                    " PID: [" + sl::support::to_string(pid) + "]" +
+                    "USB 'ReadFileEx' error, VID: [" + sl::support::to_string(this->conf.vendor_id) + "]," +
+                    " PID: [" + sl::support::to_string(this->conf.product_id) + "]" +
                     " bytes to read: [" + sl::support::to_string(length) + "]" +
                     " bytes read: [" + sl::support::to_string(res.length()) + "]" +
-                    " bytes avail: [" + sl::support::to_string(avail) + "]" +
                     " error: [" + sl::utils::errcode_to_string(::GetLastError()) + "]"));
 
             auto err_wait_read = ::SleepEx(rtm, TRUE);
-            if (WAIT_IO_COMPLETION != err_wait_read) {
+            if (WAIT_IO_COMPLETION != err_wait_read || !completion_called_flag) {
                 // cancel pending operation
                 auto err_cancel = ::CancelIo(this->handle);
                 if (0 == err_cancel) throw support::exception(TRACEMSG(
-                        "USB 'CancelIo' error, VID: [" + sl::support::to_string(vid) + "]," +
-                        " PID: [" + sl::support::to_string(pid) + "]" +
+                        "USB 'CancelIo' error, VID: [" + sl::support::to_string(this->conf.vendor_id) + "]," +
+                        " PID: [" + sl::support::to_string(this->conf.product_id) + "]" +
                         " bytes to read: [" + sl::support::to_string(length) + "]" +
                         " bytes read: [" + sl::support::to_string(res.length()) + "]" +
-                        " bytes avail: [" + sl::support::to_string(avail) + "]" +
+                        " completion called: [" + sl::support::to_string(completion_called_flag) + "]" +
                         " error: [" + sl::utils::errcode_to_string(::GetLastError()) + "]"));
                 // wait for operation to be canceled
                 auto err_wait_canceled = ::SleepEx(INFINITE, TRUE);
-                if (WAIT_IO_COMPLETION != err_wait_canceled) throw support::exception(TRACEMSG(
-                        "USB 'SleepEx' error, VID: [" + sl::support::to_string(vid) + "]," +
-                        " PID: [" + sl::support::to_string(pid) + "]" +
+                if (WAIT_IO_COMPLETION != err_wait_canceled || !completion_called_flag) throw support::exception(TRACEMSG(
+                        "USB 'SleepEx' error, VID: [" + sl::support::to_string(this->conf.vendor_id) + "]," +
+                        " PID: [" + sl::support::to_string(this->conf.product_id) + "]" +
                         " bytes to read: [" + sl::support::to_string(length) + "]" +
                         " bytes read: [" + sl::support::to_string(res.length()) + "]" +
-                        " bytes avail: [" + sl::support::to_string(avail) + "]" +
+                        " completion called: [" + sl::support::to_string(completion_called_flag) + "]" +
                         " error: [" + sl::utils::errcode_to_string(::GetLastError()) + "]"));
             }
 
             // at this point completion routine must be called
-            if (ERROR_SUCCESS == state.first) {
+            if (ERROR_SUCCESS == std::get<0>(state)) {
                 // check for warnings
                 DWORD read_checked = 0;
                 overlapped.hEvent = 0;
@@ -148,28 +158,26 @@ public:
                         std::addressof(read_checked),
                         TRUE);
                 if (0 == err_get) throw support::exception(TRACEMSG(
-                        "USB 'GetOverlappedResult', VID: [" + sl::support::to_string(vid) + "]," +
-                        " PID: [" + sl::support::to_string(pid) + "]" +
+                        "USB 'GetOverlappedResult' error, VID: [" + sl::support::to_string(this->conf.vendor_id) + "]," +
+                        " PID: [" + sl::support::to_string(this->conf.product_id) + "]" +
                         " bytes to read: [" + sl::support::to_string(length) + "]" +
                         " bytes read: [" + sl::support::to_string(res.length()) + "]" +
-                        " bytes avail: [" + sl::support::to_string(avail) + "]" +
-                        " bytes completion: [" + sl::support::to_string(state.second) + "]" +
+                        " bytes completion: [" + sl::support::to_string(std::get<1>(state)) + "]" +
                         " error: [" + sl::utils::errcode_to_string(::GetLastError()) + "]"));
 
-                auto read = static_cast<size_t>(read_checked > state.second ? read_checked : state.second);
+                auto read = static_cast<size_t>(read_checked > std::get<1>(state) ? read_checked : std::get<1>(state));
                 res.resize(prev_len + read);
                 if (res.length() >= length) {
                     break;
                 }
-            } else if (ERROR_OPERATION_ABORTED == state.first) {
+            } else if (ERROR_OPERATION_ABORTED == std::get<0>(state)) {
                 res.resize(prev_len);
             } else throw support::exception(TRACEMSG(
-                    "USB 'FileIOCompletionRoutine' error, VID: [" + sl::support::to_string(vid) + "]," +
-                    " PID: [" + sl::support::to_string(pid) + "]" +
+                    "USB 'FileIOCompletionRoutine' error, VID: [" + sl::support::to_string(this->conf.vendor_id) + "]," +
+                    " PID: [" + sl::support::to_string(this->conf.product_id) + "]" +
                     " bytes to read: [" + sl::support::to_string(length) + "]" +
                     " bytes read: [" + sl::support::to_string(res.length()) + "]" +
-                    " bytes avail: [" + sl::support::to_string(avail) + "]" +
-                    " error: [" + sl::utils::errcode_to_string(state.first) + "]"));
+                    " error: [" + sl::utils::errcode_to_string(std::get<0>(state)) + "]"));
 
             // check timeout
             cur = sl::utils::current_time_millis_steady();
@@ -177,8 +185,13 @@ public:
                 break;
             }
         }
-        res.resize(length_ret);
-        return res.substr(1);
+        res.resize(length);
+        for (size_t i = 0; i < res.size(); i++) {
+            if ('\0' != res.at(i)) {
+                return res.substr(1);
+            }
+        }
+        return std::string();
     }
 
     uint32_t write(connection&, sl::io::span<const char> data_req) {
@@ -191,8 +204,9 @@ public:
         uint64_t cur = start;
         size_t written = 0;
         for(;;) {
-            // (err, bytes_written)
-            auto state = std::pair<DWORD, DWORD>();
+            // (err, bytes_written, flag)
+            bool completion_called_flag = false;
+            std::tuple<DWORD, DWORD, bool*> state = std::make_tuple(0, 0, std::addressof(completion_called_flag));
             OVERLAPPED overlapped;
             std::memset(std::addressof(overlapped), '\0', sizeof (overlapped)); 
             overlapped.hEvent = static_cast<void*>(std::addressof(state));
@@ -200,9 +214,10 @@ public:
             // completion routine
             auto completion = static_cast<LPOVERLAPPED_COMPLETION_ROUTINE> ([](
                     DWORD err, DWORD bytes_written, LPOVERLAPPED overlapped_ptr) {
-                auto state_ptr = static_cast<std::pair<DWORD, DWORD>*>(overlapped_ptr->hEvent);
-                state_ptr->first = err;
-                state_ptr->second = bytes_written;
+                auto state_ptr = static_cast<std::tuple<DWORD, DWORD, bool*>*>(overlapped_ptr->hEvent);
+                std::get<0>(*state_ptr) = err;
+                std::get<1>(*state_ptr) = bytes_written;
+                *std::get<2>(*state_ptr) = true;
             });
 
             // prepare write
@@ -219,34 +234,36 @@ public:
                     completion); 
 
             if (0 == err_write) throw support::exception(TRACEMSG(
-                    "USB 'WriteFileEx' error, VID: [" + sl::support::to_string(vid) + "]," +
-                    " PID: [" + sl::support::to_string(pid) + "]" +
+                    "USB 'WriteFileEx' error, VID: [" + sl::support::to_string(this->conf.vendor_id) + "]," +
+                    " PID: [" + sl::support::to_string(this->conf.product_id) + "]" +
                     " bytes left to write: [" + sl::support::to_string(msg.length()) + "]" +
                     " bytes written: [" + sl::support::to_string(written) + "]" +
                     " error: [" + sl::utils::errcode_to_string(::GetLastError()) + "]"));
 
             auto err_wait_written = ::SleepEx(wtm, TRUE);
-            if (WAIT_IO_COMPLETION != err_wait_written) {
+            if (WAIT_IO_COMPLETION != err_wait_written || !completion_called_flag) {
                 // cancel pending operation
                 auto err_cancel = ::CancelIo(this->handle);
                 if (0 == err_cancel) throw support::exception(TRACEMSG(
-                        "USB 'CancelIo' error, VID: [" + sl::support::to_string(vid) + "]," +
-                        " PID: [" + sl::support::to_string(pid) + "]" +
+                        "USB 'CancelIo' error, VID: [" + sl::support::to_string(this->conf.vendor_id) + "]," +
+                        " PID: [" + sl::support::to_string(this->conf.product_id) + "]" +
                         " bytes left to write: [" + sl::support::to_string(msg.length()) + "]" +
                         " bytes written: [" + sl::support::to_string(written) + "]" +
+                        " completion called: [" + sl::support::to_string(completion_called_flag) + "]" +
                         " error: [" + sl::utils::errcode_to_string(::GetLastError()) + "]"));
                 // wait for operation to be canceled
                 auto err_wait_canceled = ::SleepEx(INFINITE, TRUE);
-                if (WAIT_IO_COMPLETION != err_wait_canceled) throw support::exception(TRACEMSG(
-                        "USB 'SleepEx' error, VID: [" + sl::support::to_string(vid) + "]," +
-                        " PID: [" + sl::support::to_string(pid) + "]" +
+                if (WAIT_IO_COMPLETION != err_wait_canceled || !completion_called_flag) throw support::exception(TRACEMSG(
+                        "USB 'SleepEx' error, VID: [" + sl::support::to_string(this->conf.vendor_id) + "]," +
+                        " PID: [" + sl::support::to_string(this->conf.product_id) + "]" +
                         " bytes left to write: [" + sl::support::to_string(msg.length()) + "]" +
                         " bytes written: [" + sl::support::to_string(written) + "]" +
+                        " completion called: [" + sl::support::to_string(completion_called_flag) + "]" +
                         " error: [" + sl::utils::errcode_to_string(::GetLastError()) + "]"));
             }
 
             // at this point completion routine must be called
-            if (ERROR_SUCCESS == state.first) {
+            if (ERROR_SUCCESS == std::get<0>(state)) {
                 // check for warnings
                 DWORD written_checked = 0;
                 overlapped.hEvent = 0;
@@ -256,24 +273,24 @@ public:
                         std::addressof(written_checked),
                         TRUE);
                 if (0 == err_get) throw support::exception(TRACEMSG(
-                        "USB 'GetOverlappedResult' error, VID: [" + sl::support::to_string(vid) + "]," +
-                        " PID: [" + sl::support::to_string(pid) + "]" +
+                        "USB 'GetOverlappedResult' error, VID: [" + sl::support::to_string(this->conf.vendor_id) + "]," +
+                        " PID: [" + sl::support::to_string(this->conf.product_id) + "]" +
                         " bytes left to write: [" + sl::support::to_string(msg.length()) + "]" +
                         " bytes written: [" + sl::support::to_string(written) + "]" +
-                        " bytes completion: [" + sl::support::to_string(state.second) + "]" +
+                        " bytes completion: [" + sl::support::to_string(std::get<1>(state)) + "]" +
                         " error: [" + sl::utils::errcode_to_string(::GetLastError()) + "]"));
 
-                written += static_cast<size_t>(written_checked > state.second ? written_checked : state.second);
+                written += static_cast<size_t>(written_checked > std::get<1>(state) ? written_checked : std::get<1>(state));
                 // check everything written
                 if (written >= data.size()) {
                     break;
                 } 
-            } else if (ERROR_OPERATION_ABORTED != state.first) throw support::exception(TRACEMSG(
-                    "USB 'FileIOCompletionRoutine' error, VID: [" + sl::support::to_string(vid) + "]," +
-                    " PID: [" + sl::support::to_string(pid) + "]" +
+            } else if (ERROR_OPERATION_ABORTED != std::get<0>(state)) throw support::exception(TRACEMSG(
+                    "USB 'FileIOCompletionRoutine' error, VID: [" + sl::support::to_string(this->conf.vendor_id) + "]," +
+                    " PID: [" + sl::support::to_string(this->conf.product_id) + "]" +
                     " bytes left to write: [" + sl::support::to_string(msg.length()) + "]" +
                     " bytes written: [" + sl::support::to_string(written) + "]" +
-                    " error: [" + sl::utils::errcode_to_string(state.first) + "]"));
+                    " error: [" + sl::utils::errcode_to_string(std::get<0>(state)) + "]"));
 
             // check timeout
             cur = sl::utils::current_time_millis_steady();
@@ -302,123 +319,144 @@ public:
         if (rdatahex.get().length() > conf.buffer_size) throw support::exception(TRACEMSG(
                 "Invalid parameter 'dataHex', size: [" + sl::support::to_string(rdatahex.get().size()) + "]"));
         std::string data = !rdata.get().empty() ? rdata.get() : sl::io::string_from_hex(rdatahex.get());
-        data.insert(0, '\0');
+        auto data_pass = std::string();
+        data_pass.resize(data.length() + 1);
+        data_pass[0] = '\0';
+        std::memcpy(std::addressof(data_pass.front()) + 1, data.c_str(), data.length());
         auto err = ::HidD_SetFeature(
                 this->handle,
-                data.c_str(),
+                reinterpret_cast<void*>(std::addressof(data_pass.front())),
                 this->caps.FeatureReportByteLength);
         if (0 == err) throw support::exception(TRACEMSG(
-                "USB 'HidD_SetFeature' error, VID: [" + sl::support::to_string(vid) + "]," +
-                " PID: [" + sl::support::to_string(pid) + "]" +
+                "USB 'HidD_SetFeature' error, VID: [" + sl::support::to_string(this->conf.vendor_id) + "]," +
+                " PID: [" + sl::support::to_string(this->conf.product_id) + "]" +
                 " data: [" + sl::io::format_plain_as_hex(data) + "]" +
                 " error: [" + sl::utils::errcode_to_string(::GetLastError()) + "]"));
-        return std::string();
+        return data;
+    }
+
+    static void initialize() {
+        // no-op
     }
 
 private:
     static HANDLE find_and_open_by_vid_pid(uint16_t vid, uint16_t pid) {
-        GUID HidGuid;
-        std::memset(std::addressof(HidGuid), '\0', sizeof(HidGuid));
-        ::HidD_GetHidGuid(std::addressof(HidGuid));
+        GUID hid_guid;
+        std::memset(std::addressof(hid_guid), '\0', sizeof(hid_guid));
+        ::HidD_GetHidGuid(std::addressof(hid_guid));
 
-        HANDLE hDevInfo = ::SetupDiGetClassDevs(
-                std::addressof(HidGuid),
+        HANDLE dev_info = ::SetupDiGetClassDevs(
+                std::addressof(hid_guid),
                 nullptr,
                 nullptr,
                 DIGCF_PRESENT | DIGCF_INTERFACEDEVICE);
-        if (INVALID_HANDLE_VALUE == hDevInfo) throw support::exception(TRACEMSG(
+        if (INVALID_HANDLE_VALUE == dev_info) throw support::exception(TRACEMSG(
                 "USB 'SetupDiGetClassDevs' error, VID: [" + sl::support::to_string(vid) + "]," +
                 " PID: [" + sl::support::to_string(pid) + "]" +
                 " error: [" + sl::utils::errcode_to_string(::GetLastError()) + "]"));
 
-        SP_DEVICE_INTERFACE_DATA devInfoData;
-        std::memset(std::addressof(devInfoData), '\0', sizeof(devInfoData));
-        devInfoData.cbSize = sizeof (devInfoData);
+        SP_DEVICE_INTERFACE_DATA dev_info_data;
+        std::memset(std::addressof(dev_info_data), '\0', sizeof(dev_info_data));
+        dev_info_data.cbSize = sizeof (dev_info_data);
 
-        DWORD MemberIndex = 0;
+        DWORD dev_idx = 0;
 
-        auto vid_pid_list = std::vector<std::pair<uint16_t, uint16_t>();
+        auto vid_pid_list = std::vector<std::pair<uint16_t, uint16_t>>();
         for (;;) {
-            auto err_enum= SetupDiEnumDeviceInterfaces(
-                    hDevInfo,
+            auto err_enum = SetupDiEnumDeviceInterfaces(
+                    dev_info,
                     nullptr,
-                    std::addressof(HidGuid),
-                    MemberIndex,
-                    std::addressof(devInfoData));
+                    std::addressof(hid_guid),
+                    dev_idx,
+                    std::addressof(dev_info_data));
             if (0 == err_enum) {
-                auto errcode = :GetLastError();
+                auto errcode = ::GetLastError();
                 if (ERROR_NO_MORE_ITEMS == errcode) {
                     break;
                 }
-                if (INVALID_HANDLE_VALUE == hDevInfo) throw support::exception(TRACEMSG(
+                if (INVALID_HANDLE_VALUE == dev_info) throw support::exception(TRACEMSG(
                         "USB 'SetupDiEnumDeviceInterfaces' error, VID: [" + sl::support::to_string(vid) + "]," +
                         " PID: [" + sl::support::to_string(pid) + "]" +
-                        " index: [" + sl::support::to_string(MemberIndex) + "]" +
+                        " index: [" + sl::support::to_string(dev_idx) + "]" +
                         " error: [" + sl::utils::errcode_to_string(::GetLastError()) + "]"));
             }
 
             DWORD len = 0;
             auto err_detail_len = ::SetupDiGetDeviceInterfaceDetail(
-                    hDevInfo,
-                    std::addressof(devInfoData),
+                    dev_info,
+                    std::addressof(dev_info_data),
                     nullptr,
                     0,
                     std::addressof(len),
                     nullptr);
             auto errcode_detail_len = ::GetLastError();
-            if (!0 == err_detail_len && ERROR_INSUFFICIENT_BUFFER != errcode_detail_len) throw support::exception(TRACEMSG(
+            if (!(0 == err_detail_len && ERROR_INSUFFICIENT_BUFFER == errcode_detail_len)) throw support::exception(TRACEMSG(
                     "USB 'SetupDiGetDeviceInterfaceDetail' length error, VID: [" + sl::support::to_string(vid) + "]," +
                     " PID: [" + sl::support::to_string(pid) + "]" +
-                    " index: [" + sl::support::to_string(MemberIndex) + "]" +
+                    " index: [" + sl::support::to_string(dev_idx) + "]" +
                     " error: [" + sl::utils::errcode_to_string(errcode_detail_len) + "]"));
 
             auto detail_data_mem = std::vector<char>();
             detail_data_mem.resize(static_cast<size_t>(len));
-            auto detailData = reinterpret_cast<PSP_DEVICE_INTERFACE_DETAIL_DATA>(detail_data_mem.data());
-            detailData->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
+            auto detail_data = reinterpret_cast<PSP_DEVICE_INTERFACE_DETAIL_DATA>(detail_data_mem.data());
+            detail_data->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
 
-            DWORD Required = 0;
+            DWORD required = 0;
             auto err_detail = ::SetupDiGetDeviceInterfaceDetail(
-                    hDevInfo,
-                    std::addressof(devInfoData),
-                    detailData,
+                    dev_info,
+                    std::addressof(dev_info_data),
+                    detail_data,
                     len,
-                    std::addressof(Required),
+                    std::addressof(required),
                     nullptr);
-            if (0 == err_detail_len) throw support::exception(TRACEMSG(
+            if (0 == err_detail) throw support::exception(TRACEMSG(
                     "USB 'SetupDiGetDeviceInterfaceDetail' error, VID: [" + sl::support::to_string(vid) + "]," +
                     " PID: [" + sl::support::to_string(pid) + "]" +
-                    " index: [" + sl::support::to_string(MemberIndex) + "]" +
+                    " index: [" + sl::support::to_string(dev_idx) + "]" +
                     " error: [" + sl::utils::errcode_to_string(::GetLastError()) + "]"));
 
             HANDLE handle = ::CreateFileW(
-                    detailData->DevicePath,
+                    detail_data->DevicePath,
                     GENERIC_READ | GENERIC_WRITE,
                     FILE_SHARE_READ | FILE_SHARE_WRITE,
                     nullptr,
                     OPEN_EXISTING,
                     FILE_FLAG_OVERLAPPED,
                     nullptr);
+            if (INVALID_HANDLE_VALUE == handle) {
+                auto errcode = ::GetLastError();
+                if (ERROR_ACCESS_DENIED == errcode) {
+                    // skip the device
+                    dev_idx += 1;
+                    continue; 
+                }
+                throw support::exception(TRACEMSG(
+                        "USB 'CreateFileW' error, VID: [" + sl::support::to_string(vid) + "]," +
+                        " PID: [" + sl::support::to_string(pid) + "]" +
+                        " index: [" + sl::support::to_string(dev_idx) + "]" +
+                        " error: [" + sl::utils::errcode_to_string(errcode) + "]"));
+            }
 
-            HIDD_ATTRIBUTES Attributes;
-            std::memset(std::addressof(Attributes), '\0', sizeof(Attributes));
-            Attributes.Size = sizeof(Attributes);
+            HIDD_ATTRIBUTES attributes;
+            std::memset(std::addressof(attributes), '\0', sizeof(attributes));
+            attributes.Size = sizeof(attributes);
 
             auto err_attr = ::HidD_GetAttributes(
                     handle,
-                    std::addressof(Attributes));
+                    std::addressof(attributes));
             if (0 == err_attr) throw support::exception(TRACEMSG(
                     "USB 'HidD_GetAttributes' error, VID: [" + sl::support::to_string(vid) + "]," +
                     " PID: [" + sl::support::to_string(pid) + "]" +
-                    " index: [" + sl::support::to_string(MemberIndex) + "]" +
+                    " index: [" + sl::support::to_string(dev_idx) + "]" +
                     " error: [" + sl::utils::errcode_to_string(::GetLastError()) + "]"));
 
-            if (Attributes.VendorID == vid && Attributes.ProductID == pid) {
+            if (attributes.VendorID == vid && attributes.ProductID == pid) {
                 return handle;
             } else {
-                vid_pid_list.emplace_back(vid, pid);
+                vid_pid_list.emplace_back(attributes.VendorID, attributes.ProductID);
             }
 
+            dev_idx += 1;
         }
 
         throw support::exception(TRACEMSG(
@@ -442,7 +480,7 @@ private:
         });
 
         auto err_caps = ::HidP_GetCaps(
-                ppd
+                ppd,
                 std::addressof(caps));
         if (0 == err_caps) throw support::exception(TRACEMSG(
                 "USB 'HidP_GetCaps' error, VID: [" + sl::support::to_string(vid) + "]," +
@@ -452,11 +490,11 @@ private:
     }
 
     static std::string print_vid_pid_list(const std::vector<std::pair<uint16_t, uint16_t>>& list) {
-        auto vec = sl::ranges::transform(list, [](const std::pair<uint16_t, uint16_t>& pa) {
-            return sl::json::value({
-                { "vendorId", tohex(pa.first) },
-                { "productId", tohex(pa.second) }
-            });
+        auto vec = sl::ranges::transform(list, [](const std::pair<uint16_t, uint16_t>& pa) -> sl::json::value {
+            auto obj = std::vector<sl::json::field>();
+            obj.emplace_back("vendorId", tohex(pa.first));
+            obj.emplace_back("productId", tohex(pa.second));
+            return sl::json::value(std::move(obj));
         }).to_vector();
         return sl::json::dumps(std::move(vec));
     }

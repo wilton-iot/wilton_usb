@@ -18,14 +18,19 @@ staticlib_pkg_check_modules ( ${PROJECT_NAME}_DEPS_PC REQUIRED ${PROJECT_NAME}_D
 
 # library
 set ( ${PROJECT_NAME}_PLATFORM_SRC ) 
+set ( ${PROJECT_NAME}_PLATFORM_LIBS )
 set ( ${PROJECT_NAME}_RESFILE )
 set ( ${PROJECT_NAME}_DEFFILE )
 if ( STATICLIB_TOOLCHAIN MATCHES "windows_.+" )
     list ( APPEND ${PROJECT_NAME}_PLATFORM_SRC ${CMAKE_CURRENT_LIST_DIR}/src/connection_windows.cpp )
+    list ( APPEND ${PROJECT_NAME}_PLATFORM_LIBS hid setupapi )
     configure_file ( ${WILTON_DIR}/resources/buildres/wilton_module.rc
             ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.rc )
     set ( ${PROJECT_NAME}_RESFILE ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.rc )
     set ( ${PROJECT_NAME}_DEFFILE ${CMAKE_CURRENT_LIST_DIR}/resources/${PROJECT_NAME}.def )
+    # todo: removeme
+    link_directories ( C:/WinDDK/7600.16385.1/lib/win7/amd64 )
+    include_directories ( C:/WinDDK/7600.16385.1/inc )
 else ( )
     list ( APPEND ${PROJECT_NAME}_PLATFORM_SRC ${CMAKE_CURRENT_LIST_DIR}/src/connection_libusb.cpp )
 endif ( )
@@ -36,14 +41,15 @@ add_library ( ${PROJECT_NAME} SHARED
         ${CMAKE_CURRENT_LIST_DIR}/src/wiltoncall_usb.cpp
         ${CMAKE_CURRENT_LIST_DIR}/include/wilton/wilton_usb.h
         ${${PROJECT_NAME}_RESFILE}
-        ${${PROJECT_NAME}_DEFFILE} )
+        ${${PROJECT_NAME}_DEFFILE} )       
         
 target_link_libraries ( ${PROJECT_NAME} PRIVATE
         wilton_core
-        ${WILTON_DIR}/modules/wilton_logging/include
+        wilton_logging
+        ${${PROJECT_NAME}_PLATFORM_LIBS}
         ${${PROJECT_NAME}_DEPS_PC_STATIC_LIBRARIES} )
 
-target_include_directories ( ${PROJECT_NAME} BEFORE PRIVATE 
+target_include_directories ( ${PROJECT_NAME} BEFORE PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}/src
         ${CMAKE_CURRENT_LIST_DIR}/include
         ${WILTON_DIR}/core/include
