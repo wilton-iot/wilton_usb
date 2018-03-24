@@ -185,13 +185,7 @@ public:
                 break;
             }
         }
-        res.resize(length);
-        for (size_t i = 0; i < res.size(); i++) {
-            if ('\0' != res.at(i)) {
-                return res.substr(1);
-            }
-        }
-        return std::string();
+        return res.length() > 0 ? res.substr(1) : std::string();
     }
 
     uint32_t write(connection&, sl::io::span<const char> data_req) {
