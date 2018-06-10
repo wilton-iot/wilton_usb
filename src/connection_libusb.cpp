@@ -163,6 +163,7 @@ public:
         uint16_t index = 0;
         auto rdata = std::ref(sl::utils::empty_string());
         auto rdatahex = std::ref(sl::utils::empty_string());
+        bool data_specified = true;
         for (const sl::json::field& fi : control_options.as_object()) {
             auto& name = fi.name();
             if ("requestType" == name) {
@@ -174,7 +175,11 @@ public:
             } else if ("index" == name) {
                 index = fi.as_uint16_or_throw(name);
             } else if ("data" == name) {
-                rdata = fi.as_string_nonempty_or_throw(name);
+                if (sl::json::type::nullt == fi.json_type()) {
+                    data_specified = false;
+                } else {
+                    rdata = fi.as_string_nonempty_or_throw(name);
+                }
             } else if ("dataHex" == name) {
                 rdatahex = fi.as_string_nonempty_or_throw(name);
             } else {
@@ -189,13 +194,20 @@ public:
                 "Invalid parameter 'data', size: [" + sl::support::to_string(rdata.get().size()) + "]"));
         if (rdatahex.get().length() > conf.buffer_size) throw support::exception(TRACEMSG(
                 "Invalid parameter 'dataHex', size: [" + sl::support::to_string(rdatahex.get().size()) + "]"));
-        std::string data = !rdata.get().empty() ? rdata.get() : sl::io::string_from_hex(rdatahex.get());
 
         // call device
+        unsigned char* data_pass = nullptr;
+        uint16_t data_pass_len = 0;
+        auto data = std::string();
         auto buf = std::string();
-        buf.resize(conf.buffer_size);
-        if (!data.empty()) {
-            std::memcpy(std::addressof(buf.front()), data.data(), data.length());
+        if (data_specified) {
+            data = !rdata.get().empty() ? rdata.get() : sl::io::string_from_hex(rdatahex.get());
+            buf.resize(conf.buffer_size);
+            if (!data.empty()) {
+                std::memcpy(std::addressof(buf.front()), data.data(), data.length());
+            }
+            data_pass = reinterpret_cast<unsigned char*>(std::addressof(buf.front()));
+            data_pass_len = !data.empty() ? data.length() : buf.length();
         }
         auto transferred = libusb_control_transfer(
                 handle.get(),
@@ -203,14 +215,14 @@ public:
                 static_cast<uint8_t> (request),
                 value,
                 index,
-                reinterpret_cast<unsigned char*>(std::addressof(buf.front())),
-                !data.empty() ? data.length() : buf.length(),
+                data_pass,
+                data_pass_len,
                 conf.timeout_millis);
         if (transferred < 0) {
             throw support::exception(TRACEMSG(
                     "USB 'libusb_control_transfer' error, code: [" + sl::support::to_string(transferred) + "]"));
         }
-        return data.substr(0, transferred);
+        return data_specified ? data.substr(0, transferred) : std::string();
     }
 
     static void initialize() {
