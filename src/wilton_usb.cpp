@@ -119,7 +119,10 @@ char* wilton_USB_write(
     try {
         auto data_src = sl::io::array_source(data, data_len);
         auto hex_sink = sl::io::string_sink();
-        sl::io::copy_to_hex(data_src, hex_sink);
+        {
+            auto sink = sl::io::make_hex_sink(hex_sink);
+            sl::io::copy_all(data_src, sink);
+        }
         wilton::support::log_debug(logger, std::string("Writing data to USB connection,") +
                 " handle: [" + wilton::support::strhandle(usb) + "]," +
                 " data: [" + sl::io::format_hex(hex_sink.get_string()) +  "],"
