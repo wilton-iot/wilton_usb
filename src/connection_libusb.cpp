@@ -164,6 +164,7 @@ public:
         auto rdata = std::ref(sl::utils::empty_string());
         auto rdatahex = std::ref(sl::utils::empty_string());
         bool data_specified = true;
+        bool reset = false;
         for (const sl::json::field& fi : control_options.as_object()) {
             auto& name = fi.name();
             if ("requestType" == name) {
@@ -182,6 +183,8 @@ public:
                 }
             } else if ("dataHex" == name) {
                 rdatahex = fi.as_string_nonempty_or_throw(name);
+            } else if ("reset" == name) {
+                reset = fi.as_bool_or_throw(name);
             } else {
                 throw support::exception(TRACEMSG("Unknown data field: [" + name + "]"));
             }
@@ -194,6 +197,13 @@ public:
                 "Invalid parameter 'data', size: [" + sl::support::to_string(rdata.get().size()) + "]"));
         if (rdatahex.get().length() > conf.buffer_size) throw support::exception(TRACEMSG(
                 "Invalid parameter 'dataHex', size: [" + sl::support::to_string(rdatahex.get().size()) + "]"));
+
+        // optional reset
+        if (reset) {
+            auto err = libusb_reset_device(handle.get());
+            if (0 != err) support::exception(TRACEMSG(
+                    "USB 'libusb_reset_device' error, code: [" + sl::support::to_string(err) + "]"));
+        }
 
         // call device
         unsigned char* data_pass = nullptr;
