@@ -424,10 +424,12 @@ private:
                     dev_idx += 1;
                     continue; 
                 }
+                std::string path(detail_data->DevicePath);
                 throw support::exception(TRACEMSG(
                         "USB 'CreateFileW' error, VID: [" + sl::support::to_string(vid) + "]," +
                         " PID: [" + sl::support::to_string(pid) + "]" +
                         " index: [" + sl::support::to_string(dev_idx) + "]" +
+                        " path: [" + path + "]" +
                         " error: [" + sl::utils::errcode_to_string(errcode) + "]"));
             }
 
