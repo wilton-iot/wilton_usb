@@ -419,7 +419,7 @@ private:
                     nullptr);
             if (INVALID_HANDLE_VALUE == handle) {
                 auto errcode = ::GetLastError();
-                if (ERROR_ACCESS_DENIED == errcode) {
+                if ((ERROR_ACCESS_DENIED == errcode) || (ERROR_SHARING_VIOLATION == errcode)) {
                     // skip the device
                     dev_idx += 1;
                     continue; 
