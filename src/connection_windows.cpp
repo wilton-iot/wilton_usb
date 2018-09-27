@@ -448,6 +448,7 @@ private:
                 return handle;
             } else {
                 vid_pid_list.emplace_back(attributes.VendorID, attributes.ProductID);
+                ::CloseHandle(handle);
             }
 
             dev_idx += 1;
