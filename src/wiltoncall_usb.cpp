@@ -47,8 +47,10 @@ namespace { //anonymous
 
 // initialized from wilton_module_init
 std::shared_ptr<support::unique_handle_registry<wilton_USB>> usb_registry() {
-    static auto registry = std::make_shared<
-            support::unique_handle_registry<wilton_USB>>(wilton_USB_close);
+    static auto registry = std::make_shared<support::unique_handle_registry<wilton_USB>>(
+            [](wilton_USB* usb) STATICLIB_NOEXCEPT {
+                wilton_USB_close(usb);
+            });
     return registry;
 }
 
