@@ -55,7 +55,7 @@ extern "C" {
 #include "staticlib/utils.hpp"
 
 #include "wilton/support/exception.hpp"
-#include "wilton/support/handle_registry.hpp"
+#include "wilton/support/misc.hpp"
 
 namespace wilton {
 namespace usb {
