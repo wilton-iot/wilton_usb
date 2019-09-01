@@ -128,9 +128,12 @@ support::buffer read(sl::io::span<const char> data) {
     if (nullptr != err) {
         support::throw_wilton_error(err, TRACEMSG(err));
     }
-    if (nullptr == out) {
+    if (nullptr == out) { // cannot happen
         return support::make_null_buffer();
     }
+    auto deferred = sl::support::defer([out]() STATICLIB_NOEXCEPT {
+        wilton_free(out);
+    });
     // return hex
     auto src = sl::io::array_source(out, out_len);
     return support::make_hex_buffer(src);
@@ -206,9 +209,12 @@ support::buffer control(sl::io::span<const char> data) {
     if (nullptr != err) {
         support::throw_wilton_error(err, TRACEMSG(err));
     }
-    if (nullptr == out) {
+    if (nullptr == out) { // cannot happen
         return support::make_null_buffer();
     }
+    auto deferred = sl::support::defer([out]() STATICLIB_NOEXCEPT {
+        wilton_free(out);
+    });
     // return hex
     auto src = sl::io::array_source(out, out_len);
     return support::make_hex_buffer(src);
